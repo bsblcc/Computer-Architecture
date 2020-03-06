@@ -1,0 +1,55 @@
+18-447 Lab 1, Spring 2014.  
+
+For this lab, you will be writing a functional simulator of a subset of ARM.
+Please see the lab handout for details.
+
+/*** Pre-Lab Step ***/
+To run many of the lab programs, you will have to source some binaries within the ece447 folder. To do this, we have provided a script for you. To run it, enter this command into your terminal:
+   source /afs/ece/class/ece447/bin/setup447
+You will have to do this everytime you start a new session. If you want this to happen automatically, put the same command into your $HOME/.bashrc file. This will run it everytime you start a new session automatically. NOTE: there may be issues if you have multiple set up scripts sourced, so only use the 447 one for this class.
+
+/*** Files ***/
+
+1. "src/" subdirectory 
+- The shell: "shell.h", "shell.c" (DO NOT MODIFY)
+- The simulator skeleton: "sim.c" (MODIFY)
+
+2. "inputs/" subdirectory 
+- Test inputs for the simulator (ARM assembly code): "*.s"
+- ARM assembler/hexdump (assembly code -> machine code -> hexdump): "arm2hex"
+  - Please copy this from /afs/ece/class/ece447/bin/arm2hex
+
+/*** Instructions ***/
+
+1. Modify "sim.c" to implement the ARM instruction set specified in the lab
+handout. Run "make" to compile the simulator.
+
+$ cd src/
+$ make
+
+You should now have an executable file named "sim".
+
+
+2. Use "arm2hex" to convert the test inputs ("*.s") into hexdumps of assembled
+machine code ("*.x").
+
+$ cd inputs/
+$ ./arm2hex add.s
+
+You should now have a hexdump of the assembled machine code "add.x". Repeat
+this step for the rest of the test inputs.
+
+3. Run the hexdump in the simulator.
+
+$ src/sim inputs/add.x
+
+>> ARM Simulator
+>> 
+>> Read 7 words from program into memory.
+>> 
+>> ARM-SIM> go
+>> 
+>> Simulating...
+
+Right now, the simulator will become unresponsive because it has not been
+implemented yet (that is your job!). Press Control+C to exit the simulator.
