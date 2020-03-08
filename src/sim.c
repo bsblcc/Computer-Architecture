@@ -3,52 +3,39 @@
 #include "sim.h"
 
 
-#define WORD_WIDTH 32
-#define WORD_TYPE uint32_t
-#define BYTE_TYPE uint8_t
-#define INSTR_TYPE WORD_TYPE
-#define GET_BITS(word, index, width) ((((WORD_TYPE)word) >> index) & (((WORD_TYPE)~0) >> (WORD_WIDTH - width)))
-#define SET_BITS(word, index, width, val)   \
-{\
-    word = (((~((((WORD_TYPE) ~0) >> (WORD_WIDTH - width)) << index)) & word) | (val << index));\
-}
-/*#define GET_1(word, index) ((word >> index) & 0x1
-#define GET_2(word, index) ((word >> index) & 0x3)
-#define GET_4(word, index) ((word >> index) & 0xf)
-#define GET_8(word, index) ((word >> index) & 0xff)
-#define GET_16(word, index) ((word >> index) & 0xffff)*/
-#define GET_CPSR_N(cs)  GET_BITS(cs.CPSR, 31, 1)
-#define GET_CPSR_Z(cs) GET_BITS(cs.CPSR, 30, 1)
-#define GET_CPSR_C(cs) GET_BITS(cs.CPSR, 29, 1)
-#define GET_CPSR_V(cs) GET_BITS(cs.CPSR, 28, 1)
-
-#define SET_CPSR_N(cs, flag) SET_BITS(cs.CPSR, 31, 1, flag)
-#define SET_CPSR_Z(cs, flag) SET_BITS(cs.CPSR, 30, 1, flag)
-#define SET_CPSR_C(cs, flag) SET_BITS(cs.CPSR, 29, 1, flag)
-#define SET_CPSR_V(cs, flag) SET_BITS(cs.CPSR, 28, 1, flag)
-/*
-#define SET_CPSR_N(cs, flag) \
-{   \
-    cs.CSPR = ((  (flag) & cs.CSPR) | (flag << 31)); \
-}
-
-#define SET_CPSR_Z(cs, flag) \
-{   \
-    cs.CSPR = (((((WORD_TYPE) ~0) >> 2) & cs.CSPR) | (flag << 30)); \
-}
-#define SET_CPSR_C(cs, flag) \
-{   \
-    cs.CSPR = (((((WORD_TYPE) ~0) >> 2) & cs.CSPR) | (flag << 30)); \
-}
-
-#define GET_CONDITION_FIELD(instr) GET_4(instr, 28)
-*/
+/*  instr to do:
+ *  adc-----------------
+ *  add-----------------
+ *  and-----------------
+ *  b-------------------
+ *  bic-----------------
+ *  bl------------------
+ *  cmn-----------------
+ *  cmp-----------------
+ *  eor-----------------
+ *  ldr
+ * ldrb
+ *  mla-----------------
+ *  mov-----------------
+ *  mul-----------------
+ *  mvn-----------------
+ *  orr-----------------
+ *  rsb-----------------
+ *  rsc-----------------
+ *  sbc-----------------
+ *  str
+ *  strb
+ *  sub-----------------
+ *  teq-----------------
+ *  tst-----------------
+ *  swi
+ */
 
 
-enum
-{
-    DATA_PROCESSING,     
-};
+
+
+
+
 
 int check_condition(uint32_t condition_code)
 {
@@ -162,10 +149,25 @@ WORD_TYPE fetch_next_instruciton()
 
 uint32_t get_instruction_group(INSTR_TYPE instr)
 {
-    if (GET_BITS(instr, 26, 1) == 0 && GET_BITS(instr, 27, 1) == 0 && (GET_BITS(instr, 4, 1) == 0 || GET_BITS(instr, 7, 1)))
+    // should be a DFA
+    if (GET_BITS(instr, 26, 1) == 0 && GET_BITS(instr, 27, 1) == 0 && ((GET_BITS(instr, 4, 1) == 0) || (GET_BITS(instr, 7, 1) == 0)))
     {
         return DATA_PROCESSING;
     }
+    else if (GET_BITS(instr, 25, 3) == 0x5)
+    {
+        return BRANCH_WITH_LINK;
+    }
+    else if (GET_BITS(instr, 24, 4) == 0xf)
+    {
+        return SOFTWARE_INTERRUPT;
+    }
+    else if (GET_BITS(instr, 4, 4) == 0x9 && GET_BITS(instr, 22, 6) == 0x0)
+    {
+        return MULTIPLY;
+    }
+
+    return INVALID_GROUP;
 }
 
 
@@ -181,6 +183,9 @@ void execute_data_processing(INSTR_TYPE instr)
     WORD_TYPE operand1_val, operand2_val, result;
     BYTE_TYPE carry_out_bit = GET_CPSR_C(CURRENT_STATE);   // C flag in CPSR
     
+
+
+
     if (dp_instr_p->i == 0x0)
     {
         // the second operand is in register, but a shift/rotate operation is needed.
@@ -341,18 +346,24 @@ void execute_data_processing(INSTR_TYPE instr)
             break;
         case (0x8): // tst
             result = operand1_val & operand2_val;
+            dp_instr_p->s = 0x1;
             not_written = 1;
             break;
         case (0x9): // teq
             result = operand1_val ^ operand2_val;
+            dp_instr_p->s = 0x1;
             not_written = 1;
             break;
         case (0xa): // cmp
             result = operand1_val - operand2_val;
+            dp_instr_p->s = 0x1;        // S bit in comparison instructions is set by default?
             not_written = 1;
+
+
             break;
         case (0xb): // cmn
             result = operand1_val + operand2_val;
+            dp_instr_p->s = 0x1;
             not_written = 1;
             break;
         case (0xc): // orr
@@ -368,6 +379,7 @@ void execute_data_processing(INSTR_TYPE instr)
             result = ~operand2_val;
             break;
         default:
+            break;
             // shouldn't reach here
 
     }
@@ -377,6 +389,7 @@ void execute_data_processing(INSTR_TYPE instr)
     {
         SET_CPSR_C(NEXT_STATE, carry_out_bit);
         SET_CPSR_Z(NEXT_STATE, (result == 0));
+        
         SET_CPSR_N(NEXT_STATE, GET_BITS(result, 31, 1));
     }
     
@@ -391,6 +404,69 @@ void execute_data_processing(INSTR_TYPE instr)
     #undef ROTATE_RIGHT
 }
 
+void execute_branch_with_link(INSTR_TYPE instr)
+{
+   
+    struct branch_with_link_instr_t *bl_instr_p = (struct branch_with_link_instr_t *) &instr;
+
+    // offset field will be left-shifted 2 bits
+    int32_t offset = bl_instr_p->offset << 2;
+     
+    // PC = PC(old PC + 0x4) + 8 +offset, because of the pi peline, but how comes that?
+    NEXT_STATE.PC = CURRENT_STATE.PC + 0xc + offset;
+    
+    if (bl_instr_p->l == 0x1)   // branch with link
+    {
+        NEXT_STATE.REGS[14] = CURRENT_STATE.PC;     // store the PC of the current instr
+    }
+}
+
+void execute_software_interrupt(INSTR_TYPE instr)
+{
+    // hack for this lab: if the bottom byte is 0x0a, halt
+    if (GET_BITS(instr, 0, BYTE_WIDTH) == 0xa)
+    {
+        RUN_BIT = 0;
+    }
+}
+
+void execute_multiply(INSTR_TYPE instr)
+{
+    #define RM_VAL CURRENT_STATE.REGS[mul_instr_p->rm]
+    #define RS_VAL CURRENT_STATE.REGS[mul_instr_p->rs]
+    #define RN_VAL CURRENT_STATE.REGS[mul_instr_p->rn]
+    
+    struct multiply_instr_t *mul_instr_p = (struct multiply_instr_t *) &instr;
+
+
+    // r15 cannot be used, rd cannot be the same as rm
+    if ((mul_instr_p->rd == mul_instr_p->rm)
+        || (mul_instr_p->rd == 15 && 
+            mul_instr_p->rm == 15 &&
+            mul_instr_p->rs == 15 &&
+            mul_instr_p->rn == 15))
+    {
+        // invalid instruction!
+        fprintf(stderr, "invalid multiply instruction\n");
+    }
+    
+    WORD_TYPE result = (RM_VAL * RS_VAL);
+    //fprintf(stderr, "%x * %x = %x\n", RM_VAL, RS_VAL, result);
+    result += (mul_instr_p->a == 0) ? (0) : (RN_VAL);
+
+    if (mul_instr_p->s == 1)
+    {
+        // set CPSR flags
+        SET_CPSR_N(NEXT_STATE, GET_BITS(result, 31, 1));
+        SET_CPSR_Z(NEXT_STATE, (result == 0));
+
+        // what is "the C flag is set to a meaningless value" ???
+    }
+    NEXT_STATE.REGS[mul_instr_p->rd] = result;
+    #undef RM_VAL
+    #undef RS_VAL
+    #undef RN_VAL
+}
 
 void process_instruction()
 {
@@ -399,12 +475,15 @@ void process_instruction()
      * access memory. */
     NEXT_STATE = CURRENT_STATE;
 
-
+    // fetch
     INSTR_TYPE instr = fetch_next_instruciton();
+    fprintf(stderr, "pc: %x\tinstr: %x\n",CURRENT_STATE.PC, instr);
+    // execute
     if (check_condition(GET_CONDITION_FIELD(instr)))
     {
         // execute
         uint32_t group = get_instruction_group(instr);
+        fprintf(stderr, "group: %ud\n", group);
         switch (group)
         {
             case (DATA_PROCESSING):
@@ -412,7 +491,26 @@ void process_instruction()
                 execute_data_processing(instr);
                 break;
             }
+            case (BRANCH_WITH_LINK):
+            {
+                execute_branch_with_link(instr);
+                break;
+            }
+            case (SOFTWARE_INTERRUPT):
+            {
+                execute_software_interrupt(instr);
+                break;
+            }
+            case (MULTIPLY):
+            {
+                execute_multiply(instr);
+                break;
+            }
             default:
+                // not yet implemented
+                printf("ERROR: instruction not implemented\n");
+                //exit(0);
+                break;
         }
     }
     else
@@ -420,6 +518,6 @@ void process_instruction()
         // ignore, pass.
     }
 
-
-    NEXT_STATE.PC = CURRENT_STATE.PC + 4;
+    // update PC here, but in fact it should be updated far above.
+    NEXT_STATE.PC = CURRENT_STATE.PC + sizeof(INSTR_TYPE);
 }
