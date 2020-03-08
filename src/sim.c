@@ -3,6 +3,7 @@
 #include "sim.h"
 
 
+
 /*  instr to do:
  *  adc-----------------
  *  add-----------------
@@ -13,8 +14,8 @@
  *  cmn-----------------
  *  cmp-----------------
  *  eor-----------------
- *  ldr
- * ldrb
+ *  ldr-----------------
+ * ldrb-----------------
  *  mla-----------------
  *  mov-----------------
  *  mul-----------------
@@ -23,12 +24,12 @@
  *  rsb-----------------
  *  rsc-----------------
  *  sbc-----------------
- *  str
- *  strb
+ *  str-----------------
+ * strb-----------------
  *  sub-----------------
  *  teq-----------------
  *  tst-----------------
- *  swi
+ *  swi-----------------
  */
 
 
@@ -166,18 +167,134 @@ uint32_t get_instruction_group(INSTR_TYPE instr)
     {
         return MULTIPLY;
     }
-
+    else if (GET_BITS(instr, 26, 2) == 0x1)
+    {
+        return DATA_TRANSFER;
+    }
     return INVALID_GROUP;
+}
+
+WORD_TYPE shift_barrel(WORD_TYPE shift_field, BYTE_TYPE s)
+{
+    #define ISSA (GET_BITS(shift_field, 4, 1) == 0x0) // Instruction Specified Shift Amount
+    #define RSSA (!ISSA) // Register Specified Shift Amount
+   
+    uint8_t rm = GET_BITS(shift_field, 0, 4);
+    uint8_t shift_type = GET_BITS(shift_field, 5, 2);
+    uint8_t shift_amount;
+    BYTE_TYPE carry_out_bit = GET_CPSR_C(CURRENT_STATE);   // C flag in CPSR
+    
+    WORD_TYPE result;
+
+    if (ISSA)
+    {
+        // shift amount is an immediate value
+        shift_amount = GET_BITS(shift_field, 7, 5);
+    }
+    else    
+    {
+        // shift amount is the bottom byte of a register.
+        WORD_TYPE rs = CURRENT_STATE.REGS[GET_BITS(shift_field, 8, 4)];
+        shift_amount = GET_BITS(rs, 0, 8);
+    }
+
+    
+    
+    switch (shift_type)
+    {
+        case (0x0): // logical left
+        {
+            
+            if (shift_amount != 0x0)    // if shift amount is zero, don't touch the flags
+            {
+                /* carry out bit is set to: 
+                    * 1) the least significant bit discarded during the shift, if ISSA or RSAA is less than 32
+                    * 2) bit #0, if RSSA is 32
+                    * 3) 0, if RSSA is more than 32
+                    */
+                carry_out_bit = ((CURRENT_STATE.REGS[rm] << (shift_amount - 1)) >> 31) & 0x1;
+            }
+            // do the left shift
+            result = (CURRENT_STATE.REGS[rm] << shift_amount);
+            break;
+        }
+        case (0x1): // logical right
+        {
+            
+            if (!(RSSA && (shift_amount == 0x0)))   // RSSA of 0 means don't touch the flags.
+            {
+                if (ISSA && (shift_amount == 0x0))    // LSR ISSA of 0 is redundant with LSL $0, so that form is used to represent LSR $32
+                {
+                    shift_amount = 32;
+                }
+                carry_out_bit = (CURRENT_STATE.REGS[rm] >> (shift_amount - 1)) & 0x1;
+            }
+            result = (CURRENT_STATE.REGS[rm] >> shift_amount);
+            break;
+        }
+        case (0x2): // arithmetic right
+        {
+            if (!(RSSA && (shift_amount == 0x0)))   // RSSA of 0 means don't touch the flags.
+            {
+                if (ISSA && (shift_amount == 0x0))    // ASR ISSA of 0 is redundant with LSL $0, so that form is used to represent ASR $32
+                {
+                    shift_amount = 32;
+                }
+                carry_out_bit = (((int32_t) CURRENT_STATE.REGS[rm]) >> (shift_amount - 1)) & 0x1;
+            }
+            result = (((int32_t) CURRENT_STATE.REGS[rm]) >> shift_amount);
+            break;
+        }
+        case (0x3): // rotate right
+        {
+            if (!(RSSA && (shift_amount == 0x0)))   // RSSA of 0 means don't touch the flags.
+            {
+                if (ISSA && (shift_amount == 0x0))  // still ISSA of 0 has a specific behaviour.
+                {
+                    // rotate right extended, use C flag to fill it up.
+                    WORD_TYPE temp = carry_out_bit << 31;
+                    result = CURRENT_STATE.REGS[rm];
+                    carry_out_bit = result & 0x1;
+                    result = (result >> 1) | temp;
+                    
+                }
+                else
+                {
+                    // perform normal rotate right
+                    if (shift_amount > 32)
+                    {
+                        shift_amount %= 32;
+                    }
+                    
+                    result = CURRENT_STATE.REGS[rm];
+                    carry_out_bit = (result >> (shift_amount - 1)) & 0x1;
+                    
+                    //operand2_val = (operand2_val << (WORD_WIDTH - shift_amount)) | (operand2_val >> shift_amount);
+                    result = ROTATE_RIGHT(result, shift_amount);
+                }
+            }
+            break;
+        }
+    }
+
+    // if S bit is set, C flag will be set to what barrier shifter gave.
+    // QUESTION: condition that r15 is rd should not be concerned here?
+    if (s == 1)
+    {
+        SET_CPSR_C(NEXT_STATE, carry_out_bit);
+    }
+
+    return result;
+
+    #undef ISSA
+    #undef RSSA
+    
 }
 
 
 void execute_data_processing(INSTR_TYPE instr)
 {
-    #define ISSA (GET_BITS(dp_instr_p->operand2, 4, 1) == 0x0) // Instruction Specified Shift Amount
-    #define RSSA (!ISSA) // Register Specified Shift Amount
-    #define ROTATE_RIGHT(word, amount) ((word << (WORD_WIDTH - amount)) | (word >> amount))
-
-
+    
     struct data_processing_instr_t *dp_instr_p = (struct data_processing_instr_t *) &instr;
     // get the second operand
     WORD_TYPE operand1_val, operand2_val, result;
@@ -189,101 +306,7 @@ void execute_data_processing(INSTR_TYPE instr)
     if (dp_instr_p->i == 0x0)
     {
         // the second operand is in register, but a shift/rotate operation is needed.
-        uint8_t rm = GET_BITS(dp_instr_p->operand2, 0, 4);
-        uint8_t shift_type = GET_BITS(dp_instr_p->operand2, 5, 2);
-        uint8_t shift_amount;
-
-        
-        if (ISSA)
-        {
-            // shift amount is an immediate value
-            shift_amount = GET_BITS(dp_instr_p->operand2, 7, 5);
-        }
-        else    
-        {
-            // shift amount is the bottom byte of a register.
-            WORD_TYPE rs = CURRENT_STATE.REGS[GET_BITS(dp_instr_p->operand2, 8, 4)];
-            shift_amount = GET_BITS(rs, 0, 8);
-        }
-
-        
-        
-        switch (shift_type)
-        {
-            case (0x0): // logical left
-            {
-                
-                if (shift_amount != 0x0)    // if shift amount is zero, don't touch the flags
-                {
-                    /* carry out bit is set to: 
-                     * 1) the least significant bit discarded during the shift, if ISSA or RSAA is less than 32
-                     * 2) bit #0, if RSSA is 32
-                     * 3) 0, if RSSA is more than 32
-                     */
-                    carry_out_bit = ((CURRENT_STATE.REGS[rm] << (shift_amount - 1)) >> 31) & 0x1;
-                }
-                // do the left shift
-                operand2_val = (CURRENT_STATE.REGS[rm] << shift_amount);
-                break;
-            }
-            case (0x1): // logical right
-            {
-                
-                if (!(RSSA && (shift_amount == 0x0)))   // RSSA of 0 means don't touch the flags.
-                {
-                    if (ISSA && (shift_amount == 0x0))    // LSR ISSA of 0 is redundant with LSL $0, so that form is used to represent LSR $32
-                    {
-                        shift_amount = 32;
-                    }
-                    carry_out_bit = (CURRENT_STATE.REGS[rm] >> (shift_amount - 1)) & 0x1;
-                }
-                operand2_val = (CURRENT_STATE.REGS[rm] >> shift_amount);
-                break;
-            }
-            case (0x2): // arithmetic right
-            {
-                if (!(RSSA && (shift_amount == 0x0)))   // RSSA of 0 means don't touch the flags.
-                {
-                    if (ISSA && (shift_amount == 0x0))    // ASR ISSA of 0 is redundant with LSL $0, so that form is used to represent ASR $32
-                    {
-                        shift_amount = 32;
-                    }
-                    carry_out_bit = (((int32_t) CURRENT_STATE.REGS[rm]) >> (shift_amount - 1)) & 0x1;
-                }
-                operand2_val = (((int32_t) CURRENT_STATE.REGS[rm]) >> shift_amount);
-                break;
-            }
-            case (0x3): // rotate right
-            {
-                if (!(RSSA && (shift_amount == 0x0)))   // RSSA of 0 means don't touch the flags.
-                {
-                    if (ISSA && (shift_amount == 0x0))  // still ISSA of 0 has a specific behaviour.
-                    {
-                        // rotate right extended, use C flag to fill it up.
-                        WORD_TYPE temp = carry_out_bit << 31;
-                        operand2_val = CURRENT_STATE.REGS[rm];
-                        carry_out_bit = operand2_val & 0x1;
-                        operand2_val = (operand2_val >> 1) | temp;
-                        
-                    }
-                    else
-                    {
-                        // perform normal rotate right
-                        if (shift_amount > 32)
-                        {
-                            shift_amount %= 32;
-                        }
-                        
-                        operand2_val = CURRENT_STATE.REGS[rm];
-                        carry_out_bit = (operand2_val >> (shift_amount - 1)) & 0x1;
-                        
-                        //operand2_val = (operand2_val << (WORD_WIDTH - shift_amount)) | (operand2_val >> shift_amount);
-                        operand2_val = ROTATE_RIGHT(operand2_val, shift_amount);
-                    }
-                }
-                break;
-            }
-        }
+        operand2_val = shift_barrel(dp_instr_p->operand2, dp_instr_p->s);
     }
     else if (dp_instr_p->i == 0x1)
     {
@@ -298,7 +321,7 @@ void execute_data_processing(INSTR_TYPE instr)
     // get the first operand
     if (dp_instr_p->rn == 15)   // r15(pc) as a operand
     {// QUESTION: can r15 be rm?
-        if (ISSA)
+        if ((GET_BITS(dp_instr_p->operand2, 4, 1) == 0x0))
         {
             operand1_val = CURRENT_STATE.REGS[15] + 8;
         }
@@ -312,10 +335,7 @@ void execute_data_processing(INSTR_TYPE instr)
         operand1_val = CURRENT_STATE.REGS[dp_instr_p->rn];
     }
 
-    // if S bit is set, C flag will be set to what barrier shifter gave.
-    // QUESTION: condition that r15 is rd should not be concerned here?
-    carry_out_bit = (dp_instr_p->s == 0x0) ? GET_CPSR_C(CURRENT_STATE) : carry_out_bit;
-
+    
     // operate
     uint8_t not_written = 0;
     switch (dp_instr_p->opcode)
@@ -401,7 +421,6 @@ void execute_data_processing(INSTR_TYPE instr)
 
     #undef ISSA
     #undef RSSA
-    #undef ROTATE_RIGHT
 }
 
 void execute_branch_with_link(INSTR_TYPE instr)
@@ -468,6 +487,90 @@ void execute_multiply(INSTR_TYPE instr)
     #undef RN_VAL
 }
 
+void execute_data_transfer(INSTR_TYPE instr)
+{
+
+
+    struct data_transfer_instr_t *dt_instr_p = (struct data_transfer_instr_t *) &instr;
+
+    int32_t offset;
+    WORD_TYPE base = CURRENT_STATE.REGS[dt_instr_p->rn];
+
+    if (dt_instr_p->i == 1) // immediate offset
+    {
+        offset = (int32_t) dt_instr_p->offset;
+    }
+    else            // shifted 
+    {   
+        // QUESTION: do shift barrel here changes CPSR?
+        offset = (int32_t) shift_barrel(dt_instr_p->offset, 1);
+    }
+
+    if (dt_instr_p->u == 0) // subtract the offset
+    {
+        offset = -offset;
+    }
+    if (dt_instr_p->p == 1) // pre, offset modification before transfer
+    {
+        base += offset;
+    }
+
+    // little-endian by default
+
+    if (dt_instr_p->b == 1) // transfer by byte
+    {
+        if (dt_instr_p->l == 0) // store
+        {
+            // this is my "memory system" haha
+            WORD_TYPE temp = mem_read_32(base);
+            // only modify the lowest byte
+            temp = ((temp & (~0xff)) | GET_BITS(CURRENT_STATE.REGS[dt_instr_p->rd], 0, 8));
+            mem_write_32(base, temp);
+        }
+        else    // load
+        {
+            NEXT_STATE.REGS[dt_instr_p->rd] = GET_BITS(mem_read_32(base), 0, 8);
+        }
+    }
+    else        // transfer by word
+    {
+        if (dt_instr_p->l == 1)         // load
+        {
+            uint8_t mod = base & 0x3;
+            // not word-aligned, a rotatation is needed.
+            WORD_TYPE aligned_base = base & (~0x3);
+            WORD_TYPE temp = mem_read_32(aligned_base);
+            
+            temp = ROTATE_RIGHT(temp, mod * BYTE_WIDTH);
+            NEXT_STATE.REGS[dt_instr_p->rd] = temp;
+        }
+        else        // store
+        {
+            // nothing to worry
+            
+            mem_write_32(base, CURRENT_STATE.REGS[dt_instr_p->rd]);
+        }
+    }
+
+
+
+
+    if (dt_instr_p->p == 0) // post, offset modification after transfer 
+    {
+        base += offset;
+        // if it's post, the modified base must be written back to rn
+        // otherwise we modified that base, and never use it?
+        NEXT_STATE.REGS[dt_instr_p->rn] = base;
+    }
+    // ignore the user mode
+    if (dt_instr_p->w == 1)
+    {
+        NEXT_STATE.REGS[dt_instr_p->rn] = base;
+    }
+    
+}
+
+
 void process_instruction()
 {
     /* execute one instruction here. You should use CURRENT_STATE and modify
@@ -504,6 +607,11 @@ void process_instruction()
             case (MULTIPLY):
             {
                 execute_multiply(instr);
+                break;
+            }
+            case (DATA_TRANSFER):
+            {
+                execute_data_transfer(instr);
                 break;
             }
             default:
