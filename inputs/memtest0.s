@@ -1,16 +1,16 @@
 .text
 
-mov r0, #0x10000000
+00  mov r0, #0x10000000
 
-mov r1, #0xff
-add r2, r1, r1
-add r3, r2, r2
-add r4, r3, #0x30000
+04  mov r1, #0xff
+08  add r2, r1, r1
+0c  add r3, r2, r2
+10  add r4, r3, #0x30000
 
-str r1, [r0]
-str r2, [r0, #4]
-str r3, [r0, #8]
-str r4, [r0, #12]
+14  str r1, [r0]
+18  str r2, [r0, #4]
+1c  str r3, [r0, #8]
+20  str r4, [r0, #12]
 
 ldr r5, [r0]
 ldr r6, [r0, #4]

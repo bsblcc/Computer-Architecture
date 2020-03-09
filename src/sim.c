@@ -151,7 +151,7 @@ WORD_TYPE fetch_next_instruciton()
 uint32_t get_instruction_group(INSTR_TYPE instr)
 {
     // should be a DFA
-    if (GET_BITS(instr, 26, 1) == 0 && GET_BITS(instr, 27, 1) == 0 && ((GET_BITS(instr, 4, 1) == 0) || (GET_BITS(instr, 7, 1) == 0)))
+    if (GET_BITS(instr, 26, 2) == 0 && ((GET_BITS(instr, 4, 1) == 0) || (GET_BITS(instr, 7, 1) == 0) || (GET_BITS(instr, 25, 1) == 1)))
     {
         return DATA_PROCESSING;
     }
@@ -429,10 +429,11 @@ void execute_branch_with_link(INSTR_TYPE instr)
     struct branch_with_link_instr_t *bl_instr_p = (struct branch_with_link_instr_t *) &instr;
 
     // offset field will be left-shifted 2 bits
-    int32_t offset = bl_instr_p->offset << 2;
-     
+    int32_t offset = ((int32_t) bl_instr_p->offset) << 2;
+    
     // PC = PC(old PC + 0x4) + 8 +offset, because of the pi peline, but how comes that?
-    NEXT_STATE.PC = CURRENT_STATE.PC + 0xc + offset;
+    // why isn't that
+    NEXT_STATE.PC = CURRENT_STATE.PC + 0x8 + offset;
     
     if (bl_instr_p->l == 0x1)   // branch with link
     {
@@ -495,8 +496,8 @@ void execute_data_transfer(INSTR_TYPE instr)
 
     int32_t offset;
     WORD_TYPE base = CURRENT_STATE.REGS[dt_instr_p->rn];
-
-    if (dt_instr_p->i == 1) // immediate offset
+    fprintf(stderr, "base: %x\n", base);
+    if (dt_instr_p->i == 0) // immediate offset
     {
         offset = (int32_t) dt_instr_p->offset;
     }
@@ -510,13 +511,15 @@ void execute_data_transfer(INSTR_TYPE instr)
     {
         offset = -offset;
     }
+
+    fprintf(stderr, " offset: %x\n", offset);
     if (dt_instr_p->p == 1) // pre, offset modification before transfer
     {
         base += offset;
     }
 
+    fprintf(stderr, "base: %x\n", base);
     // little-endian by default
-
     if (dt_instr_p->b == 1) // transfer by byte
     {
         if (dt_instr_p->l == 0) // store
@@ -578,6 +581,8 @@ void process_instruction()
      * access memory. */
     NEXT_STATE = CURRENT_STATE;
 
+    NEXT_STATE.PC = CURRENT_STATE.PC + sizeof(INSTR_TYPE);
+
     // fetch
     INSTR_TYPE instr = fetch_next_instruciton();
     fprintf(stderr, "pc: %x\tinstr: %x\n",CURRENT_STATE.PC, instr);
@@ -626,6 +631,5 @@ void process_instruction()
         // ignore, pass.
     }
 
-    // update PC here, but in fact it should be updated far above.
-    NEXT_STATE.PC = CURRENT_STATE.PC + sizeof(INSTR_TYPE);
+    
 }

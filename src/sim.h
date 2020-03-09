@@ -64,10 +64,10 @@ struct data_processing_instr_t
 
 struct branch_with_link_instr_t
 {
-	unsigned offset: 24;
+	signed offset: 24;
 	unsigned l: 1;
 	unsigned fixed: 3;
-	signed cond: 4;
+	unsigned cond: 4;
 };
 
 struct software_interrupt_instr_t
