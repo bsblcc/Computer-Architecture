@@ -1,0 +1,3 @@
+////
+//// Internal signal constants
+////

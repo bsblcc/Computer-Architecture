@@ -346,6 +346,8 @@ void execute_data_processing(INSTR_TYPE instr)
         case (0x1): // eor
             result = operand1_val ^ operand2_val;
             break;
+
+
         case (0x2): // sub
             result = operand1_val - operand2_val;
             break;
@@ -364,6 +366,8 @@ void execute_data_processing(INSTR_TYPE instr)
         case (0x7): // rsc
             result = operand2_val - operand1_val + carry_out_bit - 1;
             break;
+
+            
         case (0x8): // tst
             result = operand1_val & operand2_val;
             dp_instr_p->s = 0x1;
