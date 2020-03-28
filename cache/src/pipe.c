@@ -9,6 +9,7 @@
 #include "pipe.h"
 #include "shell.h"
 #include "mips.h"
+#include "cache.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -680,9 +681,12 @@ void pipe_stage_fetch()
     
     // todo: fetch PC from instruction cache!
     #ifdef USE_CACHE
-    op->instruction = datacache_read_32(pipe.PC);
+        op->instruction = instr_cache_read_32(pipe.PC);
+        
+        //fprintf(stderr, "%x\t%x\n", op->instruction, mem_read_32(pipe.PC));
     #else
-    op->instruction = mem_read_32(pipe.PC);
+        ;;
+        op->instruction = mem_read_32(pipe.PC);
     #endif
     
     

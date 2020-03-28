@@ -1,4 +1,5 @@
 SRC = $(wildcard src/*.c)
+SRC := $(filter-out src/test.c, $(SRC))
 INPUT ?= $(wildcard inputs/*/*.x)
 
 .PHONY: all verify clean

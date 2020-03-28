@@ -18,7 +18,7 @@
 
 #include "shell.h"
 #include "pipe.h"
-
+#include "cache.h"
 /***************************************************************/
 /* Statistics.                                                 */
 /***************************************************************/
@@ -265,7 +265,9 @@ void get_command() {
     break;
   case 'Q':
   case 'q':
+    destroy_cache();
     printf("Bye.\n");
+    
     exit(0);
 
   case 'R':
@@ -366,6 +368,7 @@ void initialize(char *program_filename, int num_prog_files) {
 
   init_memory();
   pipe_init();
+  init_cache();
   for ( i = 0; i < num_prog_files; i++ ) {
     load_program(program_filename);
     while(*program_filename++ != '\0');

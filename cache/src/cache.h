@@ -2,7 +2,6 @@
 #define CACHE_H
 
 #include "shell.h"
-
 #ifndef DATA_CACHE_BLOCK_SIZE
 #define DATA_CACHE_BLOCK_SIZE 32        // 32B
 #endif
@@ -29,14 +28,14 @@
 #endif
 
 
+#ifndef REPLACE_POLICY
+#define REPLACE POLICY 0
+#endif
 
+#ifndef USE_CACHE
+#define USE_CACHE
+#endif
 
-
-uint32_t datacache_read_32(uint32_t addr);
-
-uint32_t datacache_write_32(uint32_t addr);
-
-uint32_t instrcache_read_32(uint32_t addr);
 
 
 struct cache_line_t
@@ -44,16 +43,16 @@ struct cache_line_t
     uint32_t tag;
     uint8_t valid;
     uint8_t dirty;
-    uint8_t *data;
+    void *data;
 };
 typedef struct cache_line_t Cache_Line;
 
 struct associate_cache_t
 {
-    int block_size;
+    int block_size; /*int n_offset_bits;*/
     int size;
-    int associate_ways;
-    int associate_sets;
+    int associate_ways; /*int n_ways_bits;*/
+    int associate_sets; /*int n_sets_bits;*/
     Cache_Line **cache;
     
 };
@@ -62,8 +61,7 @@ struct associate_cache_t
 
 
 typedef struct associate_cache_t Associate_Cache;
-extern Associate_Cache data_cache;
-extern Associate_Cache instr_cache;
+
 
 
 
@@ -72,8 +70,11 @@ extern Associate_Cache instr_cache;
 
 // interface of cache
 void init_cache();
+void destroy_cache();
 uint32_t data_cache_read_32(uint32_t addr);
-uint32_t instr_cache_read_32(uint32_t addr);
 
+void data_cache_write_32(uint32_t addr, uint32_t value);
+
+uint32_t instr_cache_read_32(uint32_t addr);
 
 #endif
