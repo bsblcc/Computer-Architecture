@@ -32,10 +32,6 @@
 #define REPLACE POLICY 0
 #endif
 
-#ifndef USE_CACHE
-#define USE_CACHE
-#endif
-
 
 
 struct cache_line_t

@@ -7,9 +7,12 @@ INPUT ?= $(wildcard inputs/*/*.x)
 all: sim
 
 sim: $(SRC)
-	gcc -g -O2 $^ -o $@
+	gcc -g -D USE_INSTR_CACHE -O2 $^ -o $@ -D USE_DATA_CACHE 
 
 basesim: $(SRC)
+	gcc -g -O2 $^ -o $@
+	
+base: $(SRC)
 	gcc -g -O2 $^ -o $@
 
 run: sim

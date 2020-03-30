@@ -1,5 +1,6 @@
 #include "cache.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 
@@ -9,13 +10,13 @@ Associate_Cache instr_cache;
 void cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value);
 
 // fecth the data in cache, retrieve if not present
-uint32_t cache_fetch(Associate_Cache *cache_p, uint32_t addr);
+uint32_t cache_read(Associate_Cache *cache_p, uint32_t addr);
 
 // retrieve a whole cache line from memory
 int cache_retrieve(Associate_Cache *cache_p, uint32_t addr, uint8_t *data);
 
 // search the cache for that address, return -1 if not present in cache
-int cache_search(Associate_Cache *cache_p, int set_idx, int tag, Cache_Line **result);
+int cache_search(Associate_Cache *cache_p, int set_idx, uint32_t tag, Cache_Line **result);
 
 int cache_replace(Associate_Cache *cache_p, int set_idx, Cache_Line **result);
 int cache_flush(Associate_Cache *cache_p, uint32_t addr, uint8_t *data);
@@ -106,26 +107,28 @@ void destroy_cache()
 // ASSUME THAT BLOCK SIZE IS ALWAYS GREATER THAN 32B.
 uint32_t data_cache_read_32(uint32_t addr)
 {
-	return cache_fetch(&data_cache, addr);
+	return cache_read(&data_cache, addr);
 }
 
 uint32_t instr_cache_read_32(uint32_t addr)
 {
-	return cache_fetch(&instr_cache, addr);
+	return cache_read(&instr_cache, addr);
 }
 
 void data_cache_write_32(uint32_t addr, uint32_t value)
 {
-	cache_write(&instr_cache, addr, value);
+	cache_write(&data_cache, addr, value);
 }
 
-int cache_search(Associate_Cache *cache_p, int set_idx, int tag, Cache_Line **result)
+int cache_search(Associate_Cache *cache_p, int set_idx, uint32_t tag, Cache_Line **result)
 {
 	for (int i = 0; i < cache_p->associate_ways; i++)
 	{
+		//fprintf(stderr, "check cache line at %p, tag: %x valid: %x\n", &(cache_p->cache[set_idx][i]), cache_p->cache[set_idx][i].tag, cache_p->cache[set_idx][i].valid);
+			
 		if ((cache_p->cache[set_idx][i].tag == tag) && (cache_p->cache[set_idx][i].valid == 1))
 		{// match, present
-			*result = &cache_p->cache[set_idx][i];
+			*result = &(cache_p->cache[set_idx][i]);
 			return 0;
 		}
 	}
@@ -155,6 +158,7 @@ int cache_replace(Associate_Cache *cache_p, int set_idx, Cache_Line **result)
 int cache_retrieve(Associate_Cache *cache_p, uint32_t addr, uint8_t *data)
 {
 	int block_size = cache_p->block_size;
+	addr = addr & (~(block_size - 1));
 	for (int i = 0; i < block_size; i += 4)
 	{
 		*((uint32_t *)(data + i)) = mem_read_32(addr + i);
@@ -168,20 +172,21 @@ int cache_flush(Associate_Cache *cache_p, uint32_t addr, uint8_t *data)
 		mem_write_32(addr + i, *((uint32_t *)(data + i)));
 	}
 }
-uint32_t cache_fetch(Associate_Cache *cache_p, uint32_t addr)
+uint32_t cache_read(Associate_Cache *cache_p, uint32_t addr)
 {
 	// tag: [31:11]
 	// set index: [10:5]
 	// offset: [4:0]
 	
 	int n_offset_bits = calc_bits(cache_p->block_size);
-	//int n_ways = cache_p->associate_ways;
-	//int size = cache_p->size;
 	int n_set_bits = calc_bits(cache_p->associate_sets);
 	int n_tag_bits = 32 - n_offset_bits - n_set_bits;
 	int offset = addr & (cache_p->block_size - 1);
 	int set_idx = (addr >> n_offset_bits) & (cache_p->associate_sets - 1);
 	int tag = (addr >> (n_offset_bits + n_set_bits));
+	;
+	
+	//fprintf(stderr, "cache read at %x, tag: %x, set: %x, offset: %x\n", addr, tag, set_idx, offset);
 	
 	uint32_t ret;
 	// first, see if the data is right in the cache
@@ -189,7 +194,7 @@ uint32_t cache_fetch(Associate_Cache *cache_p, uint32_t addr)
 	if (cache_search(cache_p, set_idx, tag, &result) < 0)
 	{// not present
 		
-		
+		//fprintf(stderr, "not in cache\n");
 		// select a cache line, free or to be evicted.
 		cache_replace(cache_p, set_idx, &result);
 		
@@ -202,30 +207,36 @@ uint32_t cache_fetch(Associate_Cache *cache_p, uint32_t addr)
 		// copy from memory to target cache line.
 		cache_retrieve(cache_p, addr, result->data);
 		result->valid = 1;
-		ret = *((uint32_t *) (result->data));
+		result->tag = tag;
+		ret = *((uint32_t *) (result->data + offset));
 	}
 	else 
 	{
+		//fprintf(stderr, "in cache line %p\n", result);
 		// ASSUME THAT CACHE LINE SIZE CAN BE DIVIED BY 32.
 		ret = *((uint32_t *)(result->data + offset));
 	}
+	//fprintf(stderr, "got %x\n", ret);
 	return ret;
 }   
 
 void cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value)
 {
-	int block_size = cache_p->block_size;
-	int n_ways = cache_p->associate_ways;
-	int size = cache_p->size;
-	int n_sets = cache_p->size / (cache_p->block_size * cache_p->associate_ways);
-	int tag = addr / (n_sets * block_size);
-	int set_idx = addr / (block_size * n_ways);
-	int offset = addr % block_size;
+
+	int n_offset_bits = calc_bits(cache_p->block_size);
+	int n_set_bits = calc_bits(cache_p->associate_sets);
+	int n_tag_bits = 32 - n_offset_bits - n_set_bits;
+	int offset = addr & (cache_p->block_size - 1);
+	int set_idx = (addr >> n_offset_bits) & (cache_p->associate_sets - 1);
+	int tag = (addr >> (n_offset_bits + n_set_bits));
+	
+	//fprintf(stderr, "cache write at %x, value: %x, tag: %x, set: %x, offset: %x, value: %x\n", addr, value, tag, set_idx, offset, value);
+
 	
 	uint32_t ret;
 	// first, see if the data is right in the cache
 	Cache_Line *result;
-	if ((ret = cache_search(cache_p, set_idx, tag, &result)) < 0)
+	if (cache_search(cache_p, set_idx, tag, &result) < 0)
 	{// not present
 		
 		
@@ -242,12 +253,17 @@ void cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value)
 		cache_retrieve(cache_p, addr, result->data);
 		result->valid = 1;
 		result->dirty = 1;
-		*((uint32_t *) (result->data)) = value;
+		result->tag = tag;
+		*((uint32_t *) (result->data + offset)) = value;
+		//fprintf(stderr, "not in cache, use cache line at %p\n", result);
+		//fprintf(stderr, "value: %x\n", *((uint32_t *) (result->data)));
 	}
 	else 
 	{
+		//fprintf(stderr, "in cache line %p\n", result);
 		// ASSUME THAT CACHE LINE SIZE CAN BE DIVIED BY 32.
 		*((uint32_t *)(result->data + offset)) = value;
 		result->dirty = 1;
 	}
+	
 }

@@ -68,6 +68,9 @@ int RUN_BIT = TRUE;
 /***************************************************************/
 uint32_t mem_read_32(uint32_t address)
 {
+#ifndef USE_DATA_CACHE
+    fprintf(stderr, "memory read at %x\n", address);
+#endif
     int i;
     for (i = 0; i < MEM_NREGIONS; i++) {
         if (address >= MEM_REGIONS[i].start &&
@@ -94,6 +97,9 @@ uint32_t mem_read_32(uint32_t address)
 /***************************************************************/
 void mem_write_32(uint32_t address, uint32_t value)
 {
+#ifndef USE_DATA_CACHE
+    fprintf(stderr, "memory write at %x, value: %x\n", address, value);
+#endif
     int i;
     for (i = 0; i < MEM_NREGIONS; i++) {
         if (address >= MEM_REGIONS[i].start &&

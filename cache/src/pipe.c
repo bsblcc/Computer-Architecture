@@ -35,6 +35,8 @@ void pipe_init()
 {
     memset(&pipe, 0, sizeof(Pipe_State));
     pipe.PC = 0x00400000;
+    
+
 }
 
 void pipe_cycle()
@@ -148,8 +150,14 @@ void pipe_stage_mem()
 
     uint32_t val = 0;
     if (op->is_mem)
+    {
+#ifdef USE_DATA_CACHE
+        val = data_cache_read_32(op->mem_addr & ~3);
+#else
         val = mem_read_32(op->mem_addr & ~3);
-
+#endif
+        
+    }
     switch (op->opcode) {
         case OP_LW:
         case OP_LH:
@@ -204,8 +212,11 @@ void pipe_stage_mem()
                 case 2: val = (val & 0xFF00FFFF) | ((op->mem_value & 0xFF) << 16); break;
                 case 3: val = (val & 0x00FFFFFF) | ((op->mem_value & 0xFF) << 24); break;
             }
-
+#ifdef USE_DATA_CACHE
+            data_cache_write_32(op->mem_addr & ~3, val);
+#else
             mem_write_32(op->mem_addr & ~3, val);
+#endif
             break;
 
         case OP_SH:
@@ -220,12 +231,21 @@ void pipe_stage_mem()
             printf("new word %08x\n", val);
 #endif
 
+
+#ifdef USE_DATA_CACHE
+            data_cache_write_32(op->mem_addr & ~3, val);
+#else
             mem_write_32(op->mem_addr & ~3, val);
+#endif
             break;
 
         case OP_SW:
             val = op->mem_value;
+#ifdef USE_DATA_CACHE
+            data_cache_write_32(op->mem_addr & ~3, val);
+#else
             mem_write_32(op->mem_addr & ~3, val);
+#endif
             break;
     }
 
@@ -680,16 +700,15 @@ void pipe_stage_fetch()
     
     
     // todo: fetch PC from instruction cache!
-    #ifdef USE_CACHE
+    #ifdef USE_INSTR_CACHE
         op->instruction = instr_cache_read_32(pipe.PC);
         
-        //fprintf(stderr, "%x\t%x\n", op->instruction, mem_read_32(pipe.PC));
+        
     #else
-        ;;
         op->instruction = mem_read_32(pipe.PC);
     #endif
     
-    
+    //fprintf(stderr, "fetch instr at %x, got %x, should be %x\n",pipe.PC, op->instruction, mem_read_32(pipe.PC));
     op->pc = pipe.PC;
     pipe.decode_op = op;
 
