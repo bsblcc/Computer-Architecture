@@ -3,11 +3,11 @@
 
 #include "shell.h"
 #ifndef DATA_CACHE_BLOCK_SIZE
-#define DATA_CACHE_BLOCK_SIZE 32        // 32B
+#define DATA_CACHE_BLOCK_SIZE 64        // 32B
 #endif
 
 #ifndef DATA_CACHE_ASSOCIATE_WAYS
-#define DATA_CACHE_ASSOCIATE_WAYS 8
+#define DATA_CACHE_ASSOCIATE_WAYS 16    // 8
 #endif
 
 #ifndef DATA_CACHE_SIZE
@@ -20,7 +20,7 @@
 #endif
 
 #ifndef INSTR_CACHE_ASSOCIATE_WAYS
-#define INSTR_CACHE_ASSOCIATE_WAYS 4
+#define INSTR_CACHE_ASSOCIATE_WAYS 4    // 4
 #endif
 
 #ifndef INSTR_CACHE_SIZE
@@ -67,10 +67,9 @@ typedef struct associate_cache_t Associate_Cache;
 // interface of cache
 void init_cache();
 void destroy_cache();
-uint32_t data_cache_read_32(uint32_t addr);
 
-void data_cache_write_32(uint32_t addr, uint32_t value);
-
-uint32_t instr_cache_read_32(uint32_t addr);
+int instr_cache_read_32(uint32_t addr, uint32_t *value);
+int data_cache_write_32(uint32_t addr, uint32_t value);
+int data_cache_read_32(uint32_t addr, uint32_t *value);
 
 #endif

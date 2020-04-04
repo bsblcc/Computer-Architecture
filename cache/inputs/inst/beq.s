@@ -1,19 +1,27 @@
+
+
+------------------------------cache line #0-------------------------------------
 .text
-beq $8, $9, nottaken
-beq $zero, $zero, taken1
-addiu $2, $0, 10
-syscall
+00  beq $8, $9, nottaken
+04  beq $zero, $zero, taken1
+08  addiu $2, $0, 10
+0c  syscall
 
 nottaken:
-addiu $2, $0, 10
-syscall
+10  addiu $2, $0, 10
+14  syscall
 
 taken1:
-beq $8, $11, taken2
-addiu $2, $0, 10
-syscall
+18  beq $8, $11, taken2
+1c  addiu $2, $0, 10
+
+
+------------------------------cache line #1-------------------------------------
+
+
+20  syscall
 
 taken2: 
-addiu $2, $0, 10
-syscall
+24  addiu $2, $0, 10            this instruction doesn't execute?? --> fetched wrong instruction word
+28  syscall
 

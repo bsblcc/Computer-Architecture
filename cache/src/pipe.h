@@ -56,6 +56,8 @@ typedef struct Pipe_Op {
     int is_link;          /* jump-and-link or branch-and-link inst? */
     int link_reg;         /* register to place link into? */
 
+
+
 } Pipe_Op;
 
 /* The pipe state represents the current state of the pipeline. It holds a
@@ -89,6 +91,8 @@ typedef struct Pipe_State {
     int multiplier_stall; /* number of remaining cycles until HI/LO are ready */
 
     /* place other information here as necessary */
+    int fetch_cache_stalls, mem_cache_stalls;
+    Pipe_Op *fetch_op_stalled, *mem_op_stalled;
 
 } Pipe_State;
 

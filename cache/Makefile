@@ -6,11 +6,11 @@ INPUT ?= $(wildcard inputs/*/*.x)
 
 all: sim
 
-sim: $(SRC)
+sim: $(SRC) src/cache.h
 	gcc -g -D USE_INSTR_CACHE -O2 $^ -o $@ -D USE_DATA_CACHE 
 
 basesim: $(SRC)
-	gcc -g -O2 $^ -o $@
+	gcc -g -O2 $^ -o $@ 
 	
 base: $(SRC)
 	gcc -g -O2 $^ -o $@
@@ -19,5 +19,5 @@ run: sim
 	@./run $(INPUT)
 
 clean:
-	rm -rf *.o *~ sim
+	rm sim
 

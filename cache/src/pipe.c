@@ -35,7 +35,13 @@ void pipe_init()
 {
     memset(&pipe, 0, sizeof(Pipe_State));
     pipe.PC = 0x00400000;
-    
+
+#ifdef DIRTY_INIT
+    pipe.REGS[8] = 0xff00;
+    pipe.REGS[9] = 0x00ff;
+    pipe.REGS[11] = 0xff00;
+    ;
+#endif
 
 }
 
@@ -65,7 +71,21 @@ void pipe_cycle()
 #endif
 
         pipe.PC = pipe.branch_dest;
-
+        
+        
+#ifdef USE_INSTR_CACHE
+        // the fecth stage also needs to be flushed
+        // since it might be waiting for a useless cache access
+        if (pipe.branch_flush >= 1)
+        {
+            if (pipe.fetch_op_stalled != NULL)
+            {
+                free(pipe.fetch_op_stalled);
+                pipe.fetch_op_stalled = NULL;
+                pipe.fetch_cache_stalls = 0;
+            }
+        }
+#endif
         if (pipe.branch_flush >= 2) {
             if (pipe.decode_op) free(pipe.decode_op);
             pipe.decode_op = NULL;
@@ -79,6 +99,16 @@ void pipe_cycle()
         if (pipe.branch_flush >= 4) {
             if (pipe.mem_op) free(pipe.mem_op);
             pipe.mem_op = NULL;
+#ifdef USE_DATA_CACHE
+            // also the mem stage won't need to stall if it's flushed.
+            if (pipe.mem_op_stalled != NULL)
+            {
+                free(pipe.mem_op_stalled);
+                pipe.mem_op_stalled = NULL;
+                pipe.mem_cache_stalls = 0;
+            }
+            
+#endif
         }
 
         if (pipe.branch_flush >= 5) {
@@ -129,6 +159,13 @@ void pipe_stage_wb()
     if (op->opcode == OP_SPECIAL && op->subop == SUBOP_SYSCALL) {
         if (op->reg_src1_value == 0xA) {
             pipe.PC = op->pc; /* fetch will do pc += 4, then we stop with correct PC */
+            
+            #ifdef DEBUG
+            if (pipe.PC == 0x400028)
+            {
+                fprintf(stderr, "it should reach here\n");
+            }
+            #endif
             RUN_BIT = 0;
         }
     }
@@ -141,23 +178,42 @@ void pipe_stage_wb()
 
 void pipe_stage_mem()
 {
+
+    Pipe_Op *op;
+    
+    
+    if (pipe.mem_cache_stalls > 0)
+    {
+        pipe.mem_cache_stalls--;
+        return;
+    }
+    
     /* if there is no instruction in this pipeline stage, we are done */
     if (!pipe.mem_op)
         return;
-
+    
+    if (pipe.mem_op_stalled != NULL)
+    {
+        op = pipe.mem_op_stalled;
+        pipe.mem_op_stalled = NULL;
+        goto MEM_NEXT;
+    }
     /* grab the op out of our input slot */
-    Pipe_Op *op = pipe.mem_op;
-
+    op = pipe.mem_op;
+    
+    
     uint32_t val = 0;
+    int stalls;
     if (op->is_mem)
     {
 #ifdef USE_DATA_CACHE
-        val = data_cache_read_32(op->mem_addr & ~3);
+        pipe.mem_cache_stalls = data_cache_read_32(op->mem_addr & ~3, &val);
 #else
         val = mem_read_32(op->mem_addr & ~3);
 #endif
         
     }
+MEM_NEXT:
     switch (op->opcode) {
         case OP_LW:
         case OP_LH:
@@ -244,6 +300,7 @@ void pipe_stage_mem()
 #ifdef USE_DATA_CACHE
             data_cache_write_32(op->mem_addr & ~3, val);
 #else
+            // it shouldn't stall here, since the address is acessed above.
             mem_write_32(op->mem_addr & ~3, val);
 #endif
             break;
@@ -689,27 +746,79 @@ void pipe_stage_decode()
 
 void pipe_stage_fetch()
 {
+
+/* the tradeoff is, if we enter a branch recover while the fetch stage is waiting for the cache,
+    should we flush the fetch stage as well?
+    there are cases that the pre-fected instruction is at the same cache line with the correct target instruction
+    thought we shouldm't give up the cache in respect of this.
+    But in general, I think we should flush the fetch stage.
+ */
+
+#ifdef USE_INSTR_CACHE
+    if (RUN_BIT == 0)
+    {
+        pipe.PC += 4;
+        return;
+    }
+#endif
+    Pipe_Op *op;
+    if (pipe.fetch_cache_stalls > 0)
+    {
+ 
+        pipe.fetch_cache_stalls--;
+#ifdef DEBUG
+    fprintf(stderr, "[fetch stage] waiting for cache, %d cycles remaining\n", pipe.fetch_cache_stalls);
+#endif 
+        return;
+    }
+    
+    
+    
     /* if pipeline is stalled (our output slot is not empty), return */
     if (pipe.decode_op != NULL)
         return;
-
+        
+    // if a stalled op is already remained, just finish it.
+    if (pipe.fetch_op_stalled != NULL)
+    {
+        op = pipe.fetch_op_stalled;
+        pipe.fetch_op_stalled = NULL;
+#ifdef DEBUG
+    fprintf(stderr, "[fetch stage] cache data at %x arrived\n", op->pc);
+#endif 
+        goto FETCH_NEXT;
+    }
     /* Allocate an op and send it down the pipeline. */
-    Pipe_Op *op = malloc(sizeof(Pipe_Op));
+   
+    op = malloc(sizeof(Pipe_Op));
     memset(op, 0, sizeof(Pipe_Op));
     op->reg_src1 = op->reg_src2 = op->reg_dst = -1;
-    
-    
-    // todo: fetch PC from instruction cache!
-    #ifdef USE_INSTR_CACHE
-        op->instruction = instr_cache_read_32(pipe.PC);
-        
-        
-    #else
-        op->instruction = mem_read_32(pipe.PC);
-    #endif
-    
-    //fprintf(stderr, "fetch instr at %x, got %x, should be %x\n",pipe.PC, op->instruction, mem_read_32(pipe.PC));
     op->pc = pipe.PC;
+    
+#ifdef USE_INSTR_CACHE
+    pipe.fetch_cache_stalls = instr_cache_read_32(pipe.PC, &(op->instruction));
+    if (pipe.fetch_cache_stalls > 0)
+    {
+        //fprintf(stderr, "instr cache misses at %x\n", pipe.PC);
+    #ifdef DEBUG
+    fprintf(stderr, "[fetch stage] cache misses at %x\n", pipe.PC);
+    #endif 
+        
+        pipe.fetch_op_stalled = op;
+        return;
+    }
+    
+#else
+    op->instruction = mem_read_32(pipe.PC);
+#endif
+    
+   
+FETCH_NEXT:
+
+#ifdef DEBUG
+    fprintf(stderr, "[fetch stage] at %x, got %x, should be %x\n",pipe.PC, op->instruction, mem_read_32(pipe.PC));
+#endif 
+    
     pipe.decode_op = op;
 
     /* update PC */

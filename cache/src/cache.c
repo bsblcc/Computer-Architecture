@@ -7,10 +7,10 @@
 Associate_Cache data_cache;
 Associate_Cache instr_cache;
 
-void cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value);
+int cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value);
 
 // fecth the data in cache, retrieve if not present
-uint32_t cache_read(Associate_Cache *cache_p, uint32_t addr);
+int cache_read(Associate_Cache *cache_p, uint32_t addr, uint32_t *value);
 
 // retrieve a whole cache line from memory
 int cache_retrieve(Associate_Cache *cache_p, uint32_t addr, uint8_t *data);
@@ -20,7 +20,6 @@ int cache_search(Associate_Cache *cache_p, int set_idx, uint32_t tag, Cache_Line
 
 int cache_replace(Associate_Cache *cache_p, int set_idx, Cache_Line **result);
 int cache_flush(Associate_Cache *cache_p, uint32_t addr, uint8_t *data);
-void cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value);
 
 
 
@@ -102,22 +101,28 @@ void destroy_cache()
 	free(instr_cache.cache);
 }
 
-
+void cache_format(Associate_Cache *cache_p, uint32_t addr, uint32_t *tag, uint32_t *set_idx, uint32_t *offset)
+{
+	*offset = addr % (cache_p->block_size);
+	addr = addr / (cache_p->block_size);
+	*set_idx = addr % cache_p->associate_sets;
+	*tag = addr / cache_p->associate_sets;
+}
 
 // ASSUME THAT BLOCK SIZE IS ALWAYS GREATER THAN 32B.
-uint32_t data_cache_read_32(uint32_t addr)
+int data_cache_read_32(uint32_t addr, uint32_t *value)
 {
-	return cache_read(&data_cache, addr);
+	return cache_read(&data_cache, addr, value);
 }
 
-uint32_t instr_cache_read_32(uint32_t addr)
+int instr_cache_read_32(uint32_t addr, uint32_t *value)
 {
-	return cache_read(&instr_cache, addr);
+	return cache_read(&instr_cache, addr, value);
 }
 
-void data_cache_write_32(uint32_t addr, uint32_t value)
-{
-	cache_write(&data_cache, addr, value);
+int data_cache_write_32(uint32_t addr, uint32_t value)
+{;
+	return cache_write(&data_cache, addr, value);
 }
 
 int cache_search(Associate_Cache *cache_p, int set_idx, uint32_t tag, Cache_Line **result)
@@ -132,7 +137,7 @@ int cache_search(Associate_Cache *cache_p, int set_idx, uint32_t tag, Cache_Line
 			return 0;
 		}
 	}
-	return -1;
+	return -1;;
 }
 
 int cache_replace(Associate_Cache *cache_p, int set_idx, Cache_Line **result)
@@ -172,19 +177,21 @@ int cache_flush(Associate_Cache *cache_p, uint32_t addr, uint8_t *data)
 		mem_write_32(addr + i, *((uint32_t *)(data + i)));
 	}
 }
-uint32_t cache_read(Associate_Cache *cache_p, uint32_t addr)
+int cache_read(Associate_Cache *cache_p, uint32_t addr, uint32_t *value)
 {
 	// tag: [31:11]
 	// set index: [10:5]
 	// offset: [4:0]
 	
-	int n_offset_bits = calc_bits(cache_p->block_size);
+	/*int n_offset_bits = calc_bits(cache_p->block_size);
 	int n_set_bits = calc_bits(cache_p->associate_sets);
 	int n_tag_bits = 32 - n_offset_bits - n_set_bits;
 	int offset = addr & (cache_p->block_size - 1);
 	int set_idx = (addr >> n_offset_bits) & (cache_p->associate_sets - 1);
-	int tag = (addr >> (n_offset_bits + n_set_bits));
-	;
+	int tag = (addr >> (n_offset_bits + n_set_bits));*/
+	
+	int offset, set_idx, tag;
+	cache_format(cache_p, addr, &tag, &set_idx, &offset);
 	
 	//fprintf(stderr, "cache read at %x, tag: %x, set: %x, offset: %x\n", addr, tag, set_idx, offset);
 	
@@ -208,30 +215,33 @@ uint32_t cache_read(Associate_Cache *cache_p, uint32_t addr)
 		cache_retrieve(cache_p, addr, result->data);
 		result->valid = 1;
 		result->tag = tag;
-		ret = *((uint32_t *) (result->data + offset));
+		*value = *((uint32_t *) (result->data + offset));
+		return 50;;
 	}
 	else 
 	{
 		//fprintf(stderr, "in cache line %p\n", result);
 		// ASSUME THAT CACHE LINE SIZE CAN BE DIVIED BY 32.
-		ret = *((uint32_t *)(result->data + offset));
+		*value = *((uint32_t *)(result->data + offset));
+		return 0;
 	}
 	//fprintf(stderr, "got %x\n", ret);
-	return ret;
 }   
 
-void cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value)
+int cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value)
 {
 
-	int n_offset_bits = calc_bits(cache_p->block_size);
+	/*int n_offset_bits = calc_bits(cache_p->block_size);
 	int n_set_bits = calc_bits(cache_p->associate_sets);
 	int n_tag_bits = 32 - n_offset_bits - n_set_bits;
 	int offset = addr & (cache_p->block_size - 1);
 	int set_idx = (addr >> n_offset_bits) & (cache_p->associate_sets - 1);
 	int tag = (addr >> (n_offset_bits + n_set_bits));
-	
+	*/
+	int offset, set_idx, tag;
+	cache_format(cache_p, addr, &tag, &set_idx, &offset);
 	//fprintf(stderr, "cache write at %x, value: %x, tag: %x, set: %x, offset: %x, value: %x\n", addr, value, tag, set_idx, offset, value);
-
+	
 	
 	uint32_t ret;
 	// first, see if the data is right in the cache
@@ -257,6 +267,8 @@ void cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value)
 		*((uint32_t *) (result->data + offset)) = value;
 		//fprintf(stderr, "not in cache, use cache line at %p\n", result);
 		//fprintf(stderr, "value: %x\n", *((uint32_t *) (result->data)));
+		
+		return 50;
 	}
 	else 
 	{
@@ -264,6 +276,8 @@ void cache_write(Associate_Cache *cache_p, uint32_t addr, uint32_t value)
 		// ASSUME THAT CACHE LINE SIZE CAN BE DIVIED BY 32.
 		*((uint32_t *)(result->data + offset)) = value;
 		result->dirty = 1;
+		
+		return 0;
 	}
 	
 }
